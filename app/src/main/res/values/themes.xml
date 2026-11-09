@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Pleiades" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#16161E</item>
+        <item name="android:statusBarColor">#16161E</item>
+        <item name="android:navigationBarColor">#16161E</item>
+    </style>
+</resources>
