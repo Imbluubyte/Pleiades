@@ -91,7 +91,7 @@ private fun ColourTab(app: AppState, sp: Sprite) {
     Text("Palette", color = P.dim, fontSize = 12.sp)
     if (pal.isEmpty()) Text("Colours you use appear here", color = P.dim, fontSize = 12.sp)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        pal.forEach { c -> Swatch(c, c == app.color || (c and 0xFFFFFF) == (app.color and 0xFFFFFF)) { app.color = c or (0xFF shl 24) } }
+        pal.forEach { c -> Swatch(c, (c and 0xFFFFFF) == (app.color and 0xFFFFFF), { app.color = c or (0xFF shl 24) }) }
     }
 }
 
