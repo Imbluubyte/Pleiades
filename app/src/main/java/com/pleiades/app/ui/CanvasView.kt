@@ -112,8 +112,7 @@ fun CanvasView(app: AppState, sp: Sprite) {
             val off = IntOffset(l.roundToInt(), t.roundToInt())
             val fq = if (pixel || z >= 3f) FilterQuality.None else FilterQuality.Medium
             for ((im, before) in onionImgs) {
-                drawImage(im, dstOffset = off, dstSize = dst, alpha = 0.3f, filterQuality = fq,
-                    colorFilter = ColorFilter.tint(if (before) Color(0xFFFF5555) else Color(0xFF55DD77), BlendMode.SrcIn))
+                drawImage(im, dstOffset = off, dstSize = dst, alpha = if (before) 0.35f else 0.28f, filterQuality = fq)
             }
             drawImage(img, dstOffset = off, dstSize = dst, filterQuality = fq)
             if (app.grid && pixel && z >= 6f) {

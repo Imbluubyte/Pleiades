@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import android.net.Uri
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
 enum class Kind(val label: String) { PIXEL("Pixel"), RASTER("Raster"), VECTOR("Vector") }
@@ -26,17 +27,32 @@ class Frame(
     )
 }
 
+/** A named animation (walk, idle, hit…): its own frame list and speed. All animations of a sprite share its layers. */
+class Anim(name: String, val frames: MutableList<Frame>, fps: Int = 12) {
+    var name by mutableStateOf(name)
+    var fps by mutableIntStateOf(fps)
+}
+
 private class Snap(val frame: Frame, val layer: Int, val bmp: Bitmap, val vec: List<VObj>)
 
-/** One open document. Layers are shared by all frames; each frame owns one cel (bitmap) per layer. */
+/**
+ * One open document. Layers are shared by all frames and animations; each frame owns one cel (bitmap) per layer.
+ * [frames], [fps] and [cur] always refer to the current animation ([curAnim]).
+ */
 class Sprite(var name: String, val w: Int, val h: Int, val kind: Kind) {
     /** Bump to make Compose redraw. */
     var rev by mutableIntStateOf(0)
     val layers = mutableListOf(Layer("Layer 1"))
-    val frames = mutableListOf(Frame(mutableListOf(blank())))
+    val anims = mutableListOf(Anim("Anim 1", mutableListOf(Frame(mutableListOf(blank())))))
+    var curAnim by mutableIntStateOf(0)
+    val anim get() = anims[curAnim]
+    val frames get() = anim.frames
+    val allFrames get() = anims.flatMap { it.frames }
     var cur by mutableIntStateOf(0)
     var curLayer by mutableIntStateOf(0)
-    var fps by mutableIntStateOf(12)
+    var fps: Int
+        get() = anim.fps
+        set(v) { anim.fps = v }
     /** View transform (zoom 0 = not yet fitted) and file state; UI-owned but per document. */
     var zoom by mutableFloatStateOf(0f)
     var panX by mutableFloatStateOf(0f)
@@ -79,7 +95,9 @@ class Sprite(var name: String, val w: Int, val h: Int, val kind: Kind) {
     fun clearHistory() { undoS.clear(); redoS.clear() }
 
     /** Flatten one frame (visible layers). [layerOnly] limits to a single layer index. */
-    fun composite(f: Int, bg: Int = 0): Bitmap {
+    fun composite(f: Int, bg: Int = 0): Bitmap = composite(frames[f], bg)
+
+    fun composite(fr: Frame, bg: Int = 0): Bitmap {
         val out = blank()
         val c = Canvas(out)
         if (bg != 0) c.drawColor(bg)
@@ -88,7 +106,7 @@ class Sprite(var name: String, val w: Int, val h: Int, val kind: Kind) {
             val l = layers[i]
             if (!l.visible) continue
             p.alpha = (l.opacity * 255).toInt()
-            c.drawBitmap(frames[f].cels[i], 0f, 0f, p)
+            c.drawBitmap(fr.cels[i], 0f, 0f, p)
         }
         return out
     }
@@ -108,22 +126,46 @@ class Sprite(var name: String, val w: Int, val h: Int, val kind: Kind) {
         frames.add(t, frames.removeAt(cur)); cur = t; clearHistory(); touch()
     }
 
+    // ---- animations ----
+    fun uniqueAnimName(base: String, except: Anim? = null): String {
+        val taken = anims.filter { it !== except }.map { it.name }.toSet()
+        if (base !in taken) return base
+        var n = 2
+        while ("$base $n" in taken) n++
+        return "$base $n"
+    }
+    fun selectAnim(i: Int) {
+        if (i !in anims.indices || i == curAnim) return
+        curAnim = i; cur = 0; clearHistory(); touch()
+    }
+    fun addAnim(duplicate: Boolean) {
+        val a = if (duplicate) Anim(uniqueAnimName("${anim.name} copy"), frames.map { it.copy() }.toMutableList(), anim.fps)
+        else Anim(uniqueAnimName("Anim ${anims.size + 1}"),
+            mutableListOf(Frame(layers.map { blank() }.toMutableList(), durationMs = frames[cur].durationMs)), anim.fps)
+        anims.add(curAnim + 1, a); curAnim++; cur = 0; clearHistory(); touch()
+    }
+    fun deleteAnim() {
+        if (anims.size <= 1) return
+        anims.removeAt(curAnim); curAnim = curAnim.coerceAtMost(anims.size - 1); cur = 0; clearHistory(); touch()
+    }
+    fun renameAnim(n: String) { anim.name = uniqueAnimName(n, anim); touch() }
+
     // ---- layers ----
     fun addLayer() {
         layers.add(curLayer + 1, Layer("Layer ${layers.size + 1}"))
-        frames.forEach { it.cels.add(curLayer + 1, blank()); it.vecs.add(curLayer + 1, mutableListOf()) }
+        allFrames.forEach { it.cels.add(curLayer + 1, blank()); it.vecs.add(curLayer + 1, mutableListOf()) }
         curLayer++; clearHistory(); touch()
     }
     fun deleteLayer() {
         if (layers.size <= 1) return
-        layers.removeAt(curLayer); frames.forEach { it.cels.removeAt(curLayer); it.vecs.removeAt(curLayer) }
+        layers.removeAt(curLayer); allFrames.forEach { it.cels.removeAt(curLayer); it.vecs.removeAt(curLayer) }
         curLayer = curLayer.coerceAtMost(layers.size - 1); clearHistory(); touch()
     }
     fun moveLayer(dir: Int) {
         val t = curLayer + dir
         if (t !in layers.indices) return
         layers.add(t, layers.removeAt(curLayer))
-        frames.forEach { it.cels.add(t, it.cels.removeAt(curLayer)); it.vecs.add(t, it.vecs.removeAt(curLayer)) }
+        allFrames.forEach { it.cels.add(t, it.cels.removeAt(curLayer)); it.vecs.add(t, it.vecs.removeAt(curLayer)) }
         curLayer = t; clearHistory(); touch()
     }
 
@@ -153,7 +195,7 @@ class Sprite(var name: String, val w: Int, val h: Int, val kind: Kind) {
         val q = kind != Kind.PIXEL
         val px = IntArray(w * h)
         val stride = if (w * h > 400_000) 7 else 1
-        for (f in frames) for (c in f.cels) {
+        for (f in allFrames) for (c in f.cels) {
             c.getPixels(px, 0, w, 0, 0, w, h)
             var i = 0
             while (i < px.size) {

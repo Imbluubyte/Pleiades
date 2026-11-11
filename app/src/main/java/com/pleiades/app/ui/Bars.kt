@@ -120,7 +120,7 @@ fun TopBar(app: AppState, onSave: () -> Unit, onSaveAs: () -> Unit, onOpen: () -
 @Composable
 fun Timeline(app: AppState, sp: Sprite) {
     val rev = sp.rev
-    LaunchedEffect(app.playing, sp) {
+    LaunchedEffect(app.playing, sp, sp.curAnim) {
         if (!app.playing) return@LaunchedEffect
         val start = sp.cur
         try {
@@ -131,6 +131,18 @@ fun Timeline(app: AppState, sp: Sprite) {
         } finally { if (!app.playing) sp.cur = start.coerceAtMost(sp.frames.size - 1) }
     }
     Column(Modifier.fillMaxWidth().background(P.panel).padding(horizontal = 8.dp, vertical = 6.dp)) {
+        Row(Modifier.padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                sp.anims.forEachIndexed { i, a ->
+                    val sel = i == sp.curAnim
+                    Chip(a.name, sel, { if (!app.playing) sp.selectAnim(i) })
+                }
+            }
+            IconBtn(Icons.Filled.Add, "New animation", { sp.addAnim(false) }, enabled = !app.playing, size = 36.dp)
+            IconBtn(Icons.Filled.ContentCopy, "Duplicate animation", { sp.addAnim(true) }, enabled = !app.playing, size = 36.dp)
+            IconBtn(Icons.Filled.Edit, "Rename animation", { app.dlg = Dlg.RenameAnim }, enabled = !app.playing, size = 36.dp)
+            IconBtn(Icons.Filled.Delete, "Delete animation", { sp.deleteAnim() }, enabled = !app.playing && sp.anims.size > 1, size = 36.dp)
+        }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.horizontalScroll(rememberScrollState())) {
             IconBtn(if (app.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, "Play", { app.playing = !app.playing }, selected = app.playing)
             IconBtn(Icons.Filled.Add, "New frame", { sp.addFrame(false) }, enabled = !app.playing)
@@ -153,7 +165,7 @@ fun Timeline(app: AppState, sp: Sprite) {
         }
         LazyRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             itemsIndexed(sp.frames) { i, _ ->
-                val thumb = remember(rev, i, sp.frames.size) { sp.composite(i).asImageBitmap() }
+                val thumb = remember(rev, i, sp.frames.size, sp.curAnim) { sp.composite(i).asImageBitmap() }
                 val sel = i == sp.cur
                 Column(
                     Modifier.clip(RoundedCornerShape(8.dp)).background(if (sel) P.accent.copy(alpha = 0.2f) else P.panel2)

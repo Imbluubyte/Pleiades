@@ -18,6 +18,7 @@ sealed class Dlg {
     object Export : Dlg()
     class Close(val index: Int) : Dlg()
     class Rename(val index: Int) : Dlg()
+    object RenameAnim : Dlg()
 }
 
 class AppState {

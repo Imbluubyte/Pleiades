@@ -41,16 +41,19 @@ object Project {
         val meta = JSONObject().apply {
             put("name", s.name); put("w", s.w); put("h", s.h); put("kind", s.kind.name); put("fps", s.fps)
             put("layers", JSONArray().also { a -> s.layers.forEach { a.put(JSONObject().put("n", it.name).put("v", it.visible).put("o", it.opacity.toDouble())) } })
-            put("frames", JSONArray().also { a -> s.frames.forEach { f ->
-                a.put(JSONObject().put("ms", f.durationMs).put("vec", JSONArray().also { va ->
-                    f.vecs.forEach { l -> va.put(JSONArray().also { la -> l.forEach { la.put(vJson(it)) } }) } }))
+            put("anims", JSONArray().also { aa -> s.anims.forEach { an ->
+                aa.put(JSONObject().put("n", an.name).put("fps", an.fps).put("frames", JSONArray().also { a ->
+                    an.frames.forEach { f ->
+                        a.put(JSONObject().put("ms", f.durationMs).put("vec", JSONArray().also { va ->
+                            f.vecs.forEach { l -> va.put(JSONArray().also { la -> l.forEach { la.put(vJson(it)) } }) } }))
+                    } }))
             } })
         }
         ZipOutputStream(out).use { z ->
             z.putNextEntry(ZipEntry("meta.json")); z.write(meta.toString().toByteArray()); z.closeEntry()
-            for (f in s.frames.indices) for (l in s.layers.indices) {
-                z.putNextEntry(ZipEntry("c_${f}_$l.png"))
-                val bo = ByteArrayOutputStream(); s.frames[f].cels[l].compress(Bitmap.CompressFormat.PNG, 100, bo)
+            for (ai in s.anims.indices) for (f in s.anims[ai].frames.indices) for (l in s.layers.indices) {
+                z.putNextEntry(ZipEntry("c_${ai}_${f}_$l.png"))
+                val bo = ByteArrayOutputStream(); s.anims[ai].frames[f].cels[l].compress(Bitmap.CompressFormat.PNG, 100, bo)
                 z.write(bo.toByteArray()); z.closeEntry()
             }
         }
@@ -65,23 +68,33 @@ object Project {
         s.layers.clear()
         val la = m.getJSONArray("layers")
         for (i in 0 until la.length()) la.getJSONObject(i).let { s.layers.add(Layer(it.getString("n"), it.getBoolean("v"), it.getDouble("o").toFloat())) }
-        s.frames.clear()
-        val fa = m.getJSONArray("frames")
-        for (f in 0 until fa.length()) {
-            val fj = fa.getJSONObject(f)
-            val cels = ArrayList<Bitmap>(); val vecs = ArrayList<MutableList<VObj>>()
-            val vj = fj.optJSONArray("vec")
-            for (l in s.layers.indices) {
-                val bytes = files["c_${f}_$l.png"]
-                val bmp = Bitmap.createBitmap(s.w, s.h, Bitmap.Config.ARGB_8888)
-                if (bytes != null) BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { android.graphics.Canvas(bmp).drawBitmap(it, 0f, 0f, null) }
-                cels.add(bmp)
-                val list = ArrayList<VObj>()
-                vj?.optJSONArray(l)?.let { a -> for (k in 0 until a.length()) list.add(vObj(a.getJSONObject(k))) }
-                vecs.add(list)
+        s.anims.clear()
+        // Older projects have a single flat "frames" list (cels c_<frame>_<layer>.png) and one fps.
+        val aj = m.optJSONArray("anims") ?: JSONArray().put(JSONObject().put("n", "Anim 1").put("fps", m.optInt("fps", 12)).put("frames", m.getJSONArray("frames")))
+        val legacy = !m.has("anims")
+        for (ai in 0 until aj.length()) {
+            val anj = aj.getJSONObject(ai)
+            val fa = anj.getJSONArray("frames")
+            val frames = ArrayList<Frame>()
+            for (f in 0 until fa.length()) {
+                val fj = fa.getJSONObject(f)
+                val cels = ArrayList<Bitmap>(); val vecs = ArrayList<MutableList<VObj>>()
+                val vj = fj.optJSONArray("vec")
+                for (l in s.layers.indices) {
+                    val bytes = files[if (legacy) "c_${f}_$l.png" else "c_${ai}_${f}_$l.png"]
+                    val bmp = Bitmap.createBitmap(s.w, s.h, Bitmap.Config.ARGB_8888)
+                    if (bytes != null) BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { android.graphics.Canvas(bmp).drawBitmap(it, 0f, 0f, null) }
+                    cels.add(bmp)
+                    val list = ArrayList<VObj>()
+                    vj?.optJSONArray(l)?.let { a -> for (k in 0 until a.length()) list.add(vObj(a.getJSONObject(k))) }
+                    vecs.add(list)
+                }
+                frames.add(Frame(cels, vecs, fj.optInt("ms", 100)))
             }
-            s.frames.add(Frame(cels, vecs, fj.optInt("ms", 100)))
+            if (frames.isEmpty()) frames.add(Frame(s.layers.map { s.blank() }.toMutableList()))
+            s.anims.add(Anim(anj.optString("n", "Anim ${ai + 1}"), frames, anj.optInt("fps", 12)))
         }
+        if (s.anims.isEmpty()) s.anims.add(Anim("Anim 1", mutableListOf(Frame(s.layers.map { s.blank() }.toMutableList()))))
         return s
     }
 

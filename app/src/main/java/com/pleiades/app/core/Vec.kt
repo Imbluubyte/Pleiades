@@ -74,12 +74,14 @@ object Vec {
         for (o in list) o.draw(c, p)
     }
 
-    fun svg(s: Sprite, frame: Int): String {
+    fun svg(s: Sprite, frame: Int): String = svg(s, s.frames[frame])
+
+    fun svg(s: Sprite, fr: Frame): String {
         val sb = StringBuilder("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"${s.w}\" height=\"${s.h}\" viewBox=\"0 0 ${s.w} ${s.h}\">\n")
         for (i in s.layers.indices) {
             if (!s.layers[i].visible) continue
             sb.append("<g opacity=\"${s.layers[i].opacity}\">\n")
-            s.frames[frame].vecs[i].forEach { sb.append(it.svg()).append('\n') }
+            fr.vecs[i].forEach { sb.append(it.svg()).append('\n') }
             sb.append("</g>\n")
         }
         return sb.append("</svg>\n").toString()

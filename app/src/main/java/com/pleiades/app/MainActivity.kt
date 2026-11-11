@@ -154,6 +154,7 @@ fun PleiadesApp() {
                 }
             }
             is Dlg.Close -> app.tabs.getOrNull(d.index)?.let { s -> CloseDialog(s.name, { app.dlg = null }) { app.close(d.index); app.dlg = null } }
+            is Dlg.RenameAnim -> app.sprite?.let { sp -> RenameDialog(sp.anim.name, { app.dlg = null }) { sp.renameAnim(it); app.dlg = null } }
             is Dlg.Rename -> app.tabs.getOrNull(d.index)?.let { s -> RenameDialog(s.name, { app.dlg = null }) { s.name = it; app.dlg = null; s.touch() } }
             null -> {}
         }

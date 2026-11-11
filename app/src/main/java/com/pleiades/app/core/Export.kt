@@ -8,6 +8,7 @@ import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import androidx.documentfile.provider.DocumentFile
+import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 
 enum class Fmt(val label: String, val ext: String, val mime: String) {
@@ -43,28 +44,36 @@ object Export {
         return o.toByteArray()
     }
 
+    /** One row block per animation (each starts on a new row, wrapping at [ExportOpts.cols]). */
     fun sheet(s: Sprite, o: ExportOpts): Pair<Bitmap, String> {
-        val n = s.frames.size
-        val cols = o.cols.coerceIn(1, n)
-        val rows = (n + cols - 1) / cols
+        val cols = o.cols.coerceIn(1, s.anims.maxOf { it.frames.size })
+        val rowsPer = s.anims.map { (it.frames.size + cols - 1) / cols }
+        val rows = rowsPer.sum()
         val fw = s.w * o.scale; val fh = s.h * o.scale; val pad = o.padding
         val out = Bitmap.createBitmap(cols * fw + (cols + 1) * pad, rows * fh + (rows + 1) * pad, Bitmap.Config.ARGB_8888)
         val c = Canvas(out)
         if (o.bg != 0) c.drawColor(o.bg)
         val p = Paint().apply { isFilterBitmap = s.kind != Kind.PIXEL }
-        val json = StringBuilder("{\"image\":\"${s.name}.${o.fmt.ext}\",\"frameWidth\":$fw,\"frameHeight\":$fh,\"frames\":[")
-        for (i in 0 until n) {
-            val x = pad + (i % cols) * (fw + pad); val y = pad + (i / cols) * (fh + pad)
-            c.drawBitmap(s.composite(i), null, Rect(x, y, x + fw, y + fh), p)
-            json.append("{\"x\":$x,\"y\":$y,\"w\":$fw,\"h\":$fh,\"duration\":${s.frames[i].durationMs}}")
-            if (i < n - 1) json.append(',')
+        val flat = ArrayList<String>(); val anims = ArrayList<String>()
+        var row0 = 0
+        s.anims.forEachIndexed { ai, a ->
+            val start = flat.size
+            a.frames.forEachIndexed { i, fr ->
+                val x = pad + (i % cols) * (fw + pad); val y = pad + (row0 + i / cols) * (fh + pad)
+                c.drawBitmap(s.composite(fr), null, Rect(x, y, x + fw, y + fh), p)
+                flat.add("{\"x\":$x,\"y\":$y,\"w\":$fw,\"h\":$fh,\"duration\":${fr.durationMs}}")
+            }
+            anims.add("{\"name\":${JSONObject.quote(a.name)},\"start\":$start,\"count\":${a.frames.size},\"fps\":${a.fps}}")
+            row0 += rowsPer[ai]
         }
-        return out to json.append("]}").toString()
+        val json = "{\"image\":${JSONObject.quote("${s.name}.${o.fmt.ext}")},\"frameWidth\":$fw,\"frameHeight\":$fh," +
+            "\"frames\":[${flat.joinToString(",")}],\"animations\":[${anims.joinToString(",")}]}"
+        return out to json
     }
 
-    fun gif(s: Sprite, o: ExportOpts): ByteArray {
-        val fr = s.frames.indices.map { scaled(s.composite(it, o.bg), o.scale, s.kind != Kind.PIXEL) }
-        return Gif.encode(fr, s.frames.map { it.durationMs })
+    fun gif(s: Sprite, a: Anim, o: ExportOpts): ByteArray {
+        val fr = a.frames.map { scaled(s.composite(it, o.bg), o.scale, s.kind != Kind.PIXEL) }
+        return Gif.encode(fr, a.frames.map { it.durationMs })
     }
 
     /** Writes [bytes] as [name] inside [dir], replacing any existing file of that name. */
@@ -74,6 +83,9 @@ object Export {
         ctx.contentResolver.openOutputStream(f.uri, "wt")!!.use { it.write(bytes) }
     }
 
+    /** File-name stem: just the sprite name for a single animation, else `name_anim`. */
+    private fun stem(s: Sprite, a: Anim) = if (s.anims.size == 1) s.name else "${s.name}_${a.name}"
+
     /** Runs an export; returns a human-readable summary. */
     fun run(ctx: Context, s: Sprite, dirUri: Uri, o: ExportOpts): String {
         val dir = DocumentFile.fromTreeUri(ctx, dirUri) ?: error("Folder unavailable")
@@ -82,17 +94,19 @@ object Export {
         when (o.mode) {
             Mode.CURRENT -> write(ctx, dir, "$base.${o.fmt.ext}", o.fmt.mime,
                 encode(scaled(s.composite(s.cur, if (o.fmt == Fmt.JPEG) o.bg else o.bg), o.scale, smooth), o.fmt, o.bg))
-            Mode.FRAMES -> for (i in s.frames.indices) write(ctx, dir, "${base}_%03d.${o.fmt.ext}".format(i + 1), o.fmt.mime,
-                encode(scaled(s.composite(i, o.bg), o.scale, smooth), o.fmt, o.bg))
+            Mode.FRAMES -> for (a in s.anims) for (i in a.frames.indices) write(ctx, dir, "${stem(s, a)}_%03d.${o.fmt.ext}".format(i + 1), o.fmt.mime,
+                encode(scaled(s.composite(a.frames[i], o.bg), o.scale, smooth), o.fmt, o.bg))
             Mode.SHEET -> {
                 val (b, json) = sheet(s, o)
                 write(ctx, dir, "$base.${o.fmt.ext}", o.fmt.mime, encode(b, o.fmt, o.bg))
                 if (o.withJson) write(ctx, dir, "$base.json", "application/json", json.toByteArray())
             }
-            Mode.GIF -> write(ctx, dir, "$base.gif", "image/gif", gif(s, o))
+            Mode.GIF -> for (a in s.anims) write(ctx, dir, "${stem(s, a)}.gif", "image/gif", gif(s, a, o))
             Mode.SVG -> if (s.kind == Kind.VECTOR) {
-                if (s.frames.size == 1) write(ctx, dir, "$base.svg", "image/svg+xml", Vec.svg(s, 0).toByteArray())
-                else for (i in s.frames.indices) write(ctx, dir, "${base}_%03d.svg".format(i + 1), "image/svg+xml", Vec.svg(s, i).toByteArray())
+                for (a in s.anims) {
+                    if (a.frames.size == 1) write(ctx, dir, "${stem(s, a)}.svg", "image/svg+xml", Vec.svg(s, a.frames[0]).toByteArray())
+                    else for (i in a.frames.indices) write(ctx, dir, "${stem(s, a)}_%03d.svg".format(i + 1), "image/svg+xml", Vec.svg(s, a.frames[i]).toByteArray())
+                }
             } else error("SVG is only available for vector sprites")
         }
         return "Exported ${o.mode.label.lowercase()} to ${dir.name ?: "folder"}"

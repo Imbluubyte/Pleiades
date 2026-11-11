@@ -12,12 +12,12 @@ Android-tablet 2D asset tool (Kotlin, Compose, pkg `com.pleiades.app`). Pixel/Ra
 ## Map (`app/src/main/java/com/pleiades/app/`)
 - `MainActivity.kt` PleiadesApp: layout, SAF pickers (tree=export dir, create/open=.pls), save/open/export wiring, snackbar.
 - `core/` (no UI):
-  - `Doc.kt` Sprite (layers shared; Frame = cel Bitmap per layer + vecs), undo/redo snapshots, composite(), frame/layer ops, centreLayer, palette(); view zoom/pan + fileUri live on Sprite.
+  - `Doc.kt` Sprite (layers shared; anims = list of Anim(name, frames, fps); `frames`/`fps`/`cur` = current anim; Frame = cel Bitmap per layer + vecs), undo/redo snapshots, composite(), frame/layer ops, centreLayer, palette(); view zoom/pan + fileUri live on Sprite.
   - `Painter.kt` Tool, ToolState, Painter (begin/move/end/cancel): pen/eraser/rect/ellipse/fill/picker. Pixel = mask stamping; raster = restore snapshot + redraw path; vector = VObj list.
   - `Vec.kt` VObj (VStroke, VShape), Vec.render, SVG.
-  - `Export.kt` Fmt/Mode/ExportOpts, sheet (+json), per-frame, SAF write. `Gif.kt` own GIF89a+LZW encoder.
-  - `Project.kt` .pls (zip: meta.json + PNG per cel), image import.
-- `ui/`: `AppState.kt` (tabs, tool settings, Dlg), `CanvasView.kt` (draw + 1-finger paint, 2-finger pan/zoom), `Bars.kt` (ToolBar, TopBar tabs, Timeline/onion/playback), `Panels.kt` (SidePanel: colour/palette, layers), `ColorWheel.kt`, `Dialogs.kt` (new/export/close/rename), `Widgets.kt`, `Theme.kt` (`P` colours).
+  - `Export.kt` Fmt/Mode/ExportOpts, sheet (one row block per anim, json has animations[]), per-frame/GIF per anim, SAF write. `Gif.kt` own GIF89a+LZW encoder.
+  - `Project.kt` .pls (zip: meta.json + PNG per cel `c_anim_frame_layer`; loads legacy flat files), image import.
+- `ui/`: `AppState.kt` (tabs, tool settings, Dlg), `CanvasView.kt` (draw + 1-finger paint, 2-finger pan/zoom), `Bars.kt` (ToolBar, TopBar tabs, Timeline: anim chips, frames, onion (true colour), playback), `Panels.kt` (SidePanel: colour/palette, layers), `ColorWheel.kt`, `Dialogs.kt` (new/export/close/rename), `Widgets.kt`, `Theme.kt` (`P` colours).
 
 ## Conventions
 - Compose state: mutate Sprite then `sp.touch()` (bumps `rev`) to redraw. Structural edits call `clearHistory()`.
